@@ -1,0 +1,447 @@
+#!/usr/bin/env bash
+
+# MIT license (c) 2024 https://github.com/slowpeek
+# Homepage: https://github.com/slowpeek/ubuntu-remaster-f2fs
+
+set -eu -o pipefail
+
+if [[ -t 2 ]]; then
+    t_red=$'\e[31m'
+    t_yellow=$'\e[33m'
+    t_reset=$'\e(B\e[m'
+else
+    t_red=
+    t_yellow=
+    t_reset=
+fi
+
+_log_indent=
+log_indent() { _log_indent+='| '; }
+log_unindent() { _log_indent=${_log_indent%| }; }
+
+log() { printf '%s%s\n' "$_log_indent" "$1" >&2; }
+log_warn() { log "${t_yellow}warning:${t_reset} $1"; }
+log_err() { log "${t_red}error:${t_reset} $1"; }
+
+bye() {
+    log_err "$1"
+    exit 1
+}
+
+in_path() {
+    type -P -- "$1" >/dev/null
+}
+
+in_path_req() {
+    in_path "$1" ||
+        bye "$1 tool is not installed${2:+ ($2)}"
+}
+
+capture_stdin() {
+    _stdin=$(cat)
+}
+
+test_req() {
+    local path=$1
+    shift
+
+    while (( $# )); do
+        test -"$1" "$path" ||
+            case "$1" in
+                e) bye "'$path' does not exist" ;;
+                f) bye "'$path' is not a regular file" ;;
+                d) bye "'$path' is not a directory" ;;
+                r) bye "'$path' is not readable" ;;
+                w) bye "'$path' is not writable" ;;
+            esac
+
+        shift
+    done
+}
+
+temp_paths=()
+
+temp_file() {
+    local -n path=$1
+    path=$tmp_dir/remaster.$$.${2:+$2}$1
+    temp_paths+=("$path")
+}
+
+temp_dir() {
+    temp_file "$@"
+    mkdir "${!1}"
+}
+
+cleanup() {
+    local path list=()
+    for path in "${temp_paths[@]}"; do
+        # Sanity check for the files to remove
+        [[ ! $path == "$tmp_dir"/*.$$.* ]] || list+=("$path")
+    done
+
+    [[ ! -v list ]] || rm -rf "${list[@]}"
+}
+
+cpio_extract_to() {
+    cd "$1"
+    cpio -i --preserve-modification-time --no-absolute-filenames --quiet
+}
+
+xorriso_exists() {
+    local result
+    result=$(xorriso -indev "$iso" -find "$@" 2>/dev/null) || return 1
+    [[ -n $result ]]
+}
+
+xorriso_find() {
+    xorriso -indev "$iso" -find "$@" 2>/dev/null
+}
+
+xorriso_extract() {
+    osirrox -indev "$iso" -extract "$1" "$2" 2>/dev/null
+    chmod u+w "$2"
+}
+
+usage() {
+    cat <<'EOF'
+Usage: ubuntu-remaster-f2fs options input output
+
+Options:
+  -h, --help                 Show usage
+  --no-cleanup               Do not remove temp files on exit
+  --tmp-dir path             Set a custom dir for temp files. By default,
+                             $TMPDIR value is used, if set and not empty, or
+                             /tmp otherwise
+
+Supported iso versions: 14.04.3+ (except 14.10) for desktop, 18.04+ for live
+server.
+
+Homepage https://github.com/slowpeek/ubuntu-remaster-f2fs
+EOF
+
+    exit
+}
+
+# jetopt hhelp .dry-run .script-help .no-cleanup .tmp-dir:
+opts=$(getopt -o h -l help,dry-run,script-help,no-cleanup,tmp-dir: -- "$@") || exit
+eval set -- "$opts"
+
+cleanup=y
+dry_run=n
+
+while (( $# )); do
+    case $1 in
+        -h|--help|--script-help)
+            usage ;;
+
+        --dry-run)
+            dry_run=y
+            shift ;;
+
+        --no-cleanup)
+            cleanup=n
+            shift ;;
+
+        --tmp-dir)
+            tmp_dir=$2
+            shift 2 ;;
+
+        --)
+            shift
+            break ;;
+    esac
+done
+
+(( $# )) || usage
+(( $# < 3 )) || bye "Only two args are expected: input and output file"
+(( $# > 1 )) || bye "You should provide the output file as well"
+
+readonly iso=$1
+readonly iso_out=$2
+
+[[ $iso == *.iso && $iso_out == *.iso ]] ||
+    bye 'The input and output files are supposed to have *.iso extension'
+
+test_req "$iso" e f r
+
+! test -e "$iso_out" || bye "'$_' already exists"
+test_req "$(dirname "$iso_out")" e d w
+
+[[ -n ${tmp_dir:-} ]] || tmp_dir=${TMPDIR:-/tmp}
+test_req "$tmp_dir" e d w
+
+readonly tmp_dir
+[[ $cleanup == n ]] || trap cleanup EXIT
+
+in_path_req xorriso
+
+xorriso_exists /.disk/info ||
+    bye "There is no /.disk/info in the iso"
+
+temp_file disk_info
+# shellcheck disable=SC2154
+xorriso_extract /.disk/info "$disk_info"
+
+# There is no eol in .disk/info and read returns 1
+read -r -a disk_info < "$disk_info" || true
+
+# The version number is not guaranteed to be the second token. For example, in
+# ubuntu-23.10-desktop-legacy-amd64.iso it is 'Ubuntu Legacy 23.10 "Mantic
+# Minotaur" - Release amd64 (20231010)'
+for token in "${disk_info[@]}"; do
+    # Stop on the first number-like token
+    if [[ $token == [1-9]* ]]; then
+        distro=$token
+        break
+    fi
+done
+
+[[ -n ${distro-} ]] ||
+    bye 'Failed to figure out the version number in /.disk/info'
+
+[[ $distro == @([4-9].*|[1-9][0-9].*) ]] ||
+    bye "'${distro}' does not look like some ubuntu release number"
+
+# Kernel 3.19+ is a must
+[[ $distro == 14.04.[3-6] || ${distro%%.*} -gt 14 ]] ||
+    bye "This script only supports ubuntu 14.04.3+, excluding 14.10"
+
+xorriso_exists /casper -maxdepth 0 ||
+    bye "This script only supports casper-based iso. It is 18.04+ for server iso"
+
+temp_file md5sum_new
+# shellcheck disable=SC2154
+xorriso_extract /md5sum.txt "$md5sum_new"
+
+xorriso_args=()
+
+iter=0
+for initrd in $(xorriso_find /casper -name 'initrd*' -or -name 'hwe-initrd*'); do
+    (( ! iter++ )) || log_unindent
+
+    # Revert xorriso/misc_funct.c:Text_shellsafe(). There are likely no names
+    # with single quotes in any ubuntu iso. For clarity, revert it thoroughly
+    initrd=${initrd#\'}
+    initrd=${initrd%\'}
+    initrd=${initrd//\"\'\"/\'}
+
+    initrd_name=${initrd##*/}
+
+    # Either 'hwe-' or ''
+    prefix=${initrd_name%initrd*}
+
+    log "patch ${initrd#/}"
+    log_indent
+
+    temp_file initrd_old "$prefix"
+    # shellcheck disable=SC2154
+    xorriso_extract "$initrd" "$initrd_old"
+
+    in_path_req unmkinitramfs-turbo 'https://github.com/slowpeek/unmkinitramfs-turbo/blob/master/unmkinitramfs-turbo'
+
+    scan=$(unmkinitramfs-turbo -ss "$initrd_old" | tail -n1)
+    read -r comp_cmd offset <<< "$scan"
+
+    [[ ! $comp_cmd == -- ]] ||
+        bye 'Failed to detect the compression method'
+
+    log "main archive offset=${offset}, compression=${comp_cmd}"
+
+    temp_dir initrd_workdir "$prefix"
+    # shellcheck disable=SC2154
+    log "extract the main archive into ${initrd_workdir}"
+
+    [[ ! $comp_cmd == @(lzma|xz) ]] || comment='package: xz-utils'
+    in_path_req "$comp_cmd" "${comment-}"
+
+    in_path_req cpio
+
+    dd status=none if="$initrd_old" skip="$offset" iflag=skip_bytes |
+        "$comp_cmd" -q -dc |
+        cpio_extract_to "$initrd_workdir"
+
+    helpers_patched=n
+    # Patch lupin-helpers up to 21.10, casper-helpers since 22.04. The latter is
+    # always there, the former is gone since 22.04
+    for script in scripts/{casper,lupin}-helpers; do
+        script_workdir=$initrd_workdir/$script
+        [[ -e $script_workdir ]] || continue
+
+        if grep -q jfs "$script_workdir"; then
+            match=$(grep -m1 -nF '|jfs|' "$script_workdir") ||
+                bye "Failed to find the patch anchor for ${script}:is_supported_fs()"
+
+            [[ ! $match == *f2fs* ]] ||
+                bye "${script} seems already patched"
+
+            log "patch ${script}:is_supported_fs()"
+            sed -Ei "${match%%:*}s,\\|jfs\\|,|jfs|f2fs|," "$script_workdir"
+
+            match=$(grep -m1 -nF 'modprobe jfs' "$script_workdir") ||
+                bye "Failed to find the patch anchor for ${script}:wait_for_devs()"
+
+            log "patch ${script}:wait_for_devs()"
+            sed -Ei "${match%%:*}{p;s,jfs,f2fs,}" "$script_workdir"
+
+            helpers_patched=y
+            break
+        fi
+    done
+
+    [[ $helpers_patched == y ]] ||
+        bye 'Failed to patch casper-helpers/lupin-helpers'
+
+    # libblkid in ubuntu 14.04 does not recognize f2fs
+    if [[ $distro == 14.04.* ]]; then
+        script=scripts/casper-helpers
+        script_workdir=$initrd_workdir/$script
+
+        # shellcheck disable=SC2016
+        match=$(grep -m1 -nF '/sbin/blkid -s TYPE -o value $1 2>/dev/null' "$script_workdir") ||
+            bye "Failed to find the patch anchor for ${script}:get_fstype()"
+
+        log "patch ${script}:get_fstype()"
+
+        capture_stdin <<'PATCH'
+    /sbin/blkid -s TYPE -o value $1 2>/dev/null || {\
+        # Check for f2fs\
+        case "$(dd if="$1" skip=2 count=1 2>/dev/null)" in\
+            "$(printf '\\x10\\x20\\xf5\\xf2')"*)\
+                echo f2fs\
+                return 0 ;;\
+        esac\
+        return 1\
+    }
+PATCH
+
+        sed -Ei "${match%%:*}c\\${_stdin}" "$script_workdir"
+    fi
+
+    # f2fs kernel module was not bundled in the iso initrd till 20.04. It can be
+    # copy-pasted from some bundled squashfs though
+    if (( ${distro%%.*} < 20 )); then
+        in_path_req unsquashfs 'package: squashfs-tools'
+        in_path_req depmod 'package: kmod'
+
+        for kernel in "$initrd_workdir"/lib/modules/*; do
+            kernel=${kernel##*/}
+            break
+        done
+
+        modules_squash=/casper/extras/modules.squashfs-generic
+        [[ ! $initrd_name == hwe-* ]] || modules_squash+=-hwe
+
+        if xorriso_exists "$modules_squash"; then
+            squash=$modules_squash
+            squash_prefix_in="$kernel"/kernel
+            squash_prefix_out=lib/modules
+        else
+            squash=/casper/filesystem.squashfs
+            squash_prefix_in=lib/modules/"$kernel"/kernel
+            squash_prefix_out=
+        fi
+
+        lba=$(xorriso_find "$squash" -exec report_lba | tail -n1)
+        read -r _ _ _ _ _ squash_offset _ <<< "$lba"
+        (( squash_offset*=2048 ))
+
+        log 'add kernel modules'
+        log_indent
+
+        mask=0
+        for module in fs/f2fs/f2fs.ko crypto/crc32_generic.ko arch/x86/crypto/crc32-pclmul.ko; do
+            (( mask<<=1 )) || true
+            # There is no crc32_generic module till 16.04.2, 16.10
+            [[ ! -e $initrd_workdir/lib/modules/"$kernel"/kernel/$module ]] || continue
+
+            search=/$squash_prefix_in/$module
+            [[ $(unsquashfs -l -o "$squash_offset" -d '' "$iso" "$search" | tail -n1) == "$search" ]] ||
+                continue
+
+            log "${module##*/}"
+            (( mask|=1 ))
+
+            unsquashfs -n -q -f -o "$squash_offset" -d "$initrd_workdir/$squash_prefix_out" \
+                       "$iso" "$squash_prefix_in/$module"
+        done
+
+        log_unindent
+
+        (( mask&5 == 5 )) ||
+            bye 'Failed to add the required kernel modules'
+
+        depmod -b "$initrd_workdir" "$kernel"
+
+        # There could be some empty files, like modules.builtin.alias.bin
+        find "$initrd_workdir/lib/modules/$kernel" -maxdepth 1 -name 'modules.*' -empty -delete
+    fi
+
+    # Create the updated main cpio
+    temp_file cpio_new "$prefix"
+    # shellcheck disable=SC2154
+    find "$initrd_workdir" -mindepth 1 -printf '%P\n' |
+        LC_ALL=C sort |
+        cpio -D "$initrd_workdir" --quiet -H newc -R 0:0 -o > "$cpio_new"
+
+    # Copy old initrd head as-is
+    temp_file initrd_new "$prefix"
+    # shellcheck disable=SC2154
+    dd status=none if="$initrd_old" count="$offset" iflag=count_bytes > "$initrd_new"
+
+    log "compress new initrd with ${comp_cmd}"
+
+    comp_flags=()
+    # The kernel assumes the "legacy" lz4 format
+    [[ ! $comp_cmd == lz4 ]] || comp_flags+=(-l)
+
+    if in_path pv; then
+        pv=(pv -ep)
+    else
+        pv=(cat)
+        log_warn 'pv is not installed, no progress'
+    fi
+
+    # Compress the updated main cpio
+    "${pv[@]}" "$cpio_new" | "$comp_cmd" "${comp_flags[@]}" -c >> "$initrd_new"
+
+    xorriso_args+=(-update "$initrd_new" "$initrd")
+
+    initrd_new_md5=$(md5sum "$initrd_new" | cut -d ' ' -f1)
+    sed -Ei "/  \\.${initrd//\//\\/}\$/s,^[^ ]+,${initrd_new_md5}," "$md5sum_new"
+done
+
+(( ! iter )) || log_unindent
+
+[[ -v xorriso_args ]] ||
+    bye 'Failed to find any initrd in the iso'
+
+xorriso_args=(
+    -indev "$iso" -outdev "$iso_out"
+    -boot_image any replay
+    -update "$md5sum_new" /md5sum.txt
+    "${xorriso_args[@]}"
+)
+
+if [[ $dry_run == y ]]; then
+    xorriso() {
+        echo 'xorriso_args=('
+
+        local list=("$1")
+        shift
+
+        while (( $# )); do
+            if [[ $1 == -[^-]* ]]; then
+                printf '    %s\n' "${list[*]}"
+                list=()
+            fi
+
+            list+=("$1")
+            shift
+        done
+
+        printf '    %s\n' "${list[*]}"
+        echo ')'
+    }
+fi
+
+xorriso "${xorriso_args[@]}"

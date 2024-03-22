@@ -354,18 +354,25 @@ PATCH
         read -r _ _ _ _ _ squash_offset _ <<< "$lba"
         (( squash_offset*=2048 ))
 
-        log 'add kernel modules'
-        log_indent
-
-        mask=0
+        mask=0 modules_added=n
         for module in fs/f2fs/f2fs.ko crypto/crc32_generic.ko arch/x86/crypto/crc32-pclmul.ko; do
             (( mask<<=1 )) || true
-            # There is no crc32_generic module till 16.04.2, 16.10
-            [[ ! -e $initrd_workdir/lib/modules/"$kernel"/kernel/$module ]] || continue
+
+            if [[ -e $initrd_workdir/lib/modules/"$kernel"/kernel/$module ]]; then
+                (( mask|=1 ))
+                continue
+            fi
 
             search=/$squash_prefix_in/$module
+            # There is no crc32_generic module till 16.04.2, 16.10
             [[ $(unsquashfs -l -o "$squash_offset" -d '' "$iso" "$search" | tail -n1) == "$search" ]] ||
                 continue
+
+            if [[ $modules_added == n ]]; then
+                modules_added=y
+                log 'add kernel modules'
+                log_indent
+            fi
 
             log "${module##*/}"
             (( mask|=1 ))
@@ -374,7 +381,7 @@ PATCH
                        "$iso" "$squash_prefix_in/$module"
         done
 
-        log_unindent
+        [[ $modules_added == n ]] || log_unindent
 
         (( mask&5 == 5 )) ||
             bye 'Failed to add the required kernel modules'

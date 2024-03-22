@@ -106,9 +106,9 @@ not cope with such features.
 *x86_64-efi* target
 
 Signed prebuilt grub images from =grub-efi-amd64-signed= package do [[https://git.launchpad.net/ubuntu/+source/grub2-unsigned/tree/debian/build-efi-images][not]] bundle
-the module (as of Q1 2024). We still have to create a custom image, but it would
-not work, when secure boot is enabled, without extra efforts (out of scope for
-this doc).
+the module (as of Q1 2024), so we have to make grub NOT use those for sure. This
+way it would not work out-of-the-box when secure boot is enabled, but that is
+out of scope for this doc.
 
 #+begin_example
   sudo grub-install --target x86_64-efi --boot-directory /mnt/sdX3 \

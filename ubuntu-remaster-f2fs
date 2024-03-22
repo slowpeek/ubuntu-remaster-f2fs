@@ -285,27 +285,31 @@ for initrd in $(xorriso_find /casper -name 'initrd*' -or -name 'hwe-initrd*'); d
         sigpipe_ok "$comp_cmd" -q -dc |
         cpio_extract_to "$initrd_workdir"
 
+    log 'patch scripts'
+    log_indent
+
     helpers_patched=n
     # Patch lupin-helpers up to 21.10, casper-helpers since 22.04. The latter is
     # always there, the former is gone since 22.04
     for script in scripts/{casper,lupin}-helpers; do
+        script_name=${script#scripts/}
         script_workdir=$initrd_workdir/$script
         [[ -e $script_workdir ]] || continue
 
         if grep -q jfs "$script_workdir"; then
             match=$(grep -m1 -nF '|jfs|' "$script_workdir") ||
-                bye "Failed to find the patch anchor for ${script}:is_supported_fs()"
+                bye "Failed to find the patch anchor for ${script_name}:is_supported_fs()"
 
             [[ ! $match == *f2fs* ]] ||
-                bye "${script} seems already patched"
+                bye "${script_name} seems already patched"
 
-            log "patch ${script}:is_supported_fs()"
+            log "${script_name}:is_supported_fs()"
             sed -Ei "${match%%:*}s,\\|jfs\\|,|jfs|f2fs|," "$script_workdir"
 
             match=$(grep -m1 -nF 'modprobe jfs' "$script_workdir") ||
-                bye "Failed to find the patch anchor for ${script}:wait_for_devs()"
+                bye "Failed to find the patch anchor for ${script_name}:wait_for_devs()"
 
-            log "patch ${script}:wait_for_devs()"
+            log "${script_name}:wait_for_devs()"
             sed -Ei "${match%%:*}{p;s,jfs,f2fs,}" "$script_workdir"
 
             helpers_patched=y
@@ -319,13 +323,14 @@ for initrd in $(xorriso_find /casper -name 'initrd*' -or -name 'hwe-initrd*'); d
     # libblkid in ubuntu 14.04 does not recognize f2fs
     if [[ $distro == 14.04.* ]]; then
         script=scripts/casper-helpers
+        script_name=${script#scripts/}
         script_workdir=$initrd_workdir/$script
 
         # shellcheck disable=SC2016
         match=$(grep -m1 -nF '/sbin/blkid -s TYPE -o value $1 2>/dev/null' "$script_workdir") ||
-            bye "Failed to find the patch anchor for ${script}:get_fstype()"
+            bye "Failed to find the patch anchor for ${script_name}:get_fstype()"
 
-        log "patch ${script}:get_fstype()"
+        log "${script_name}:get_fstype()"
 
         capture_stdin <<'PATCH'
     /sbin/blkid -s TYPE -o value $1 2>/dev/null || {\
@@ -341,6 +346,8 @@ PATCH
 
         sed -Ei "${match%%:*}c\\${_stdin}" "$script_workdir"
     fi
+
+    log_unindent
 
     # f2fs kernel module was not bundled in the iso initrd till 20.04. It can be
     # copy-pasted from some bundled squashfs though

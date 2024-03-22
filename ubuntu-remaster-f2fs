@@ -102,6 +102,10 @@ xorriso_extract() {
     chmod u+w "$2"
 }
 
+unsquashfs_l() {
+    unsquashfs -l -o "$squash_offset" -d '' "$iso" "$1"
+}
+
 pv_fallback() {
     if in_path pv; then
         pv -ep "$@"
@@ -354,6 +358,12 @@ PATCH
         read -r _ _ _ _ _ squash_offset _ <<< "$lba"
         (( squash_offset*=2048 ))
 
+        if [[ $squash_prefix_in == lib/* ]]; then
+            # Since 19.04 /lib is a symlink to /usr/lib
+            [[ -n $(unsquashfs_l "/lib/modules/$kernel/modules.builtin") ]] ||
+                squash_prefix_in=usr/$squash_prefix_in
+        fi
+
         mask=0 modules_added=n
         for module in fs/f2fs/f2fs.ko crypto/crc32_generic.ko arch/x86/crypto/crc32-pclmul.ko; do
             (( mask<<=1 )) || true
@@ -365,8 +375,7 @@ PATCH
 
             search=/$squash_prefix_in/$module
             # There is no crc32_generic module till 16.04.2, 16.10
-            [[ $(unsquashfs -l -o "$squash_offset" -d '' "$iso" "$search" | tail -n1) == "$search" ]] ||
-                continue
+            [[ $(unsquashfs_l "$search" | tail -n1) == "$search" ]] || continue
 
             if [[ $modules_added == n ]]; then
                 modules_added=y

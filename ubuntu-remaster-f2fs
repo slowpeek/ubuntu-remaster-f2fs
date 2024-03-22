@@ -113,7 +113,7 @@ pv_fallback() {
 
 usage() {
     cat <<'EOF'
-Usage: ubuntu-remaster-f2fs options input output
+Usage: ubuntu-remaster-f2fs [options] input output
 
 Options:
   -h, --help                 Show usage

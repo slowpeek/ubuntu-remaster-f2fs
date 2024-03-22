@@ -25,6 +25,63 @@ Options:
 Supported iso versions: 14.04.3+ (except 14.10) for desktop, 18.04+ for live
 server.
 
+* Sample run
+
+*ubuntu-23.10.1-desktop-amd64.iso*: single initrd; only patch scripts
+
+#+begin_example
+  > ubuntu-remaster-f2fs --tmp-dir /run/shm ubuntu-23.10.1-desktop-amd64.iso /run/shm/mantic.iso
+  patch casper/initrd
+  | main archive offset=85893120, compression=zstd
+  | extract the main archive into /run/shm/remaster.141183.initrd_workdir
+  | patch scripts
+  | | casper-helpers:is_supported_fs()
+  | | casper-helpers:wait_for_devs()
+  | compress new initrd with zstd
+  [==============================================================================>] 100%
+  xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+  [long xorriso log]
+
+  Writing to '/run/shm/mantic.iso' completed successfully.
+#+end_example
+
+*ubuntu-18.04.6-live-server-amd64.iso*: two initrd; patch scripts, add missing
+kernel modules
+
+#+begin_example
+  > ubuntu-remaster-f2fs --tmp-dir /run/shm ubuntu-18.04.6-live-server-amd64.iso /run/shm/bionic.iso
+  patch casper/hwe-initrd
+  | main archive offset=4641792, compression=gzip
+  | extract the main archive into /run/shm/remaster.140234.hwe-initrd_workdir
+  | patch scripts
+  | | lupin-helpers:is_supported_fs()
+  | | lupin-helpers:wait_for_devs()
+  | add kernel modules
+  | | f2fs.ko
+  | | crc32_generic.ko
+  | | crc32-pclmul.ko
+  | compress new initrd with gzip
+  [==============================================================================>] 100%
+  patch casper/initrd
+  | main archive offset=4641792, compression=gzip
+  | extract the main archive into /run/shm/remaster.140234.initrd_workdir
+  | patch scripts
+  | | lupin-helpers:is_supported_fs()
+  | | lupin-helpers:wait_for_devs()
+  | add kernel modules
+  | | f2fs.ko
+  | | crc32_generic.ko
+  | | crc32-pclmul.ko
+  | compress new initrd with gzip
+  [==============================================================================>] 100%
+  xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+  [long xorriso log]
+
+  Writing to '/run/shm/bionic.iso' completed successfully.
+#+end_example
+
 * Grub installation
 
 Here we assume =/dev/sdX= is some flash drive with such GPT partitions (/type/

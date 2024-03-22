@@ -41,6 +41,14 @@ capture_stdin() {
     _stdin=$(cat)
 }
 
+# To be used in pipes. Run "$@", convert exit code 141 to 0
+sigpipe_ok() {
+    local _st=0
+    "$@" || _st=$?
+    [[ ! $_st == 141 ]] || _st=0
+    return "$_st"
+}
+
 test_req() {
     local path=$1
     shift
@@ -272,8 +280,9 @@ for initrd in $(xorriso_find /casper -name 'initrd*' -or -name 'hwe-initrd*'); d
     in_path_req "$comp_cmd" "${comment-}"
     in_path_req cpio
 
-    dd status=none if="$initrd_old" skip="$offset" iflag=skip_bytes |
-        "$comp_cmd" -q -dc |
+    # sigpipe_ok: for the case of cpio not exhausting the whole input
+    sigpipe_ok dd status=none if="$initrd_old" skip="$offset" iflag=skip_bytes |
+        sigpipe_ok "$comp_cmd" -q -dc |
         cpio_extract_to "$initrd_workdir"
 
     helpers_patched=n

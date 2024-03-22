@@ -102,6 +102,15 @@ xorriso_extract() {
     chmod u+w "$2"
 }
 
+pv_fallback() {
+    if in_path pv; then
+        pv -ep "$@"
+    else
+        log_warn 'pv is not installed, no progress'
+        cat "$@"
+    fi
+}
+
 usage() {
     cat <<'EOF'
 Usage: ubuntu-remaster-f2fs options input output
@@ -394,15 +403,8 @@ PATCH
     # The kernel assumes the "legacy" lz4 format
     [[ ! $comp_cmd == lz4 ]] || comp_flags+=(-l)
 
-    if in_path pv; then
-        pv=(pv -ep)
-    else
-        pv=(cat)
-        log_warn 'pv is not installed, no progress'
-    fi
-
     # Compress the updated main cpio
-    "${pv[@]}" "$cpio_new" | "$comp_cmd" "${comp_flags[@]}" -c >> "$initrd_new"
+    pv_fallback "$cpio_new" | "$comp_cmd" "${comp_flags[@]}" -c >> "$initrd_new"
 
     xorriso_args+=(-update "$initrd_new" "$initrd")
 

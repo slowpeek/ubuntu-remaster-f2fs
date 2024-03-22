@@ -264,9 +264,12 @@ for initrd in $(xorriso_find /casper -name 'initrd*' -or -name 'hwe-initrd*'); d
     # shellcheck disable=SC2154
     log "extract the main archive into ${initrd_workdir}"
 
-    [[ ! $comp_cmd == @(lzma|xz) ]] || comment='package: xz-utils'
-    in_path_req "$comp_cmd" "${comment-}"
+    case $comp_cmd in
+        lzma|xz) comment='package: xz-utils' ;;
+        *) comment= ;;
+    esac
 
+    in_path_req "$comp_cmd" "${comment-}"
     in_path_req cpio
 
     dd status=none if="$initrd_old" skip="$offset" iflag=skip_bytes |

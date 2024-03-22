@@ -40,13 +40,10 @@ and /desc/ in =gdisk= terms):
 [[https://wiki.archlinux.org/title/F2FS#Creating_a_F2FS_file_system][recommended]] way is to enable the checksums support, but grub's f2fs driver does
 not cope with such features.
 
-By default, grub binaries created with =grub-install= do not include the f2fs
-driver, one have to explicitly merge it in.
-
 *i386-pc* target
 
 #+begin_example
-  sudo grub-install --target i386-pc --modules=f2fs --boot-directory /mnt/sdX3 /dev/sdX
+  sudo grub-install --target i386-pc --boot-directory /mnt/sdX3 /dev/sdX
 #+end_example
 
 *x86_64-efi* target
@@ -57,7 +54,7 @@ not work, when secure boot is enabled, without extra efforts (out of scope for
 this doc).
 
 #+begin_example
-  sudo grub-install --target x86_64-efi --modules=f2fs --boot-directory /mnt/sdX3 \
+  sudo grub-install --target x86_64-efi --boot-directory /mnt/sdX3 \
        --efi-directory /mnt/sdX2 --removable --no-uefi-secure-boot /dev/sdX
 #+end_example
 

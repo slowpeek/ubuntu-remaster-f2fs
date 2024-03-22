@@ -8,7 +8,7 @@ This script makes it possible for ubuntu iso images (including flavours) to
 The script checks if required binaries are available on the fly. The full set of
 packages to have pre-installed is as such (you likely have some already):
 =xorriso=, =xxd=, =file=, =cpio=, =squashfs-tools=, =kmod=, =lz4=, =xz-utils=,
-=zstd=, =pv=.
+=zstd=, =pv=. Also, [[https://github.com/slowpeek/unmkinitramfs-turbo/blob/master/unmkinitramfs-turbo][unmkinitramfs-turbo]] should be installed into PATH.
 
 * Usage
 

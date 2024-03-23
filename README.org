@@ -82,7 +82,7 @@ kernel modules
   Writing to '/run/shm/bionic.iso' completed successfully.
 #+end_example
 
-* Grub installation
+* Grub setup
 
 Here we assume =/dev/sdX= is some flash drive with such GPT partitions (/type/
 and /desc/ in =gdisk= terms):
@@ -114,6 +114,12 @@ out of scope for this doc.
   sudo grub-install --target x86_64-efi --boot-directory /mnt/sdX3/boot \
        --efi-directory /mnt/sdX2 --removable --no-uefi-secure-boot /dev/sdX
 #+end_example
+
+Next, put =grub.cfg= from this repo into =/mnt/sdX3/boot/grub/=. The config
+assumes the iso images are under =/mnt/sdX3/boot/iso/=.
+
+You could get more elaborate grub configs from such projects as [[https://github.com/thias/glim][GLIM]] (ubuntu
+support there is not perfect though).
 
 * Docker image
 
@@ -161,8 +167,6 @@ stored in =/boot/iso= on the same filesystem where =/boot/grub= is located:
       initrd (loop)/casper/initrd
   }
 #+end_example
-
-One could get more elaborate grub configs from such projects as [[https://github.com/thias/glim][GLIM]].
 
 It just works as long as the filesystem is recognized by casper. Even though
 initrd in ubuntu iso images bundles the f2fs driver since 20.04, casper itself

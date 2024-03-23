@@ -383,18 +383,18 @@ PATCH
                 squash_prefix_in=usr/$squash_prefix_in
         fi
 
-        mask=0 modules_added=n
+        modules_added=n mask=
         for module in fs/f2fs/f2fs.ko crypto/crc32_generic.ko arch/x86/crypto/crc32-pclmul.ko; do
-            (( mask<<=1 )) || true
+            mask+=x
 
-            if [[ -e $initrd_workdir/lib/modules/"$kernel"/kernel/$module ]]; then
-                (( mask|=1 ))
-                continue
-            fi
+            [[ ! -e $initrd_workdir/lib/modules/"$kernel"/kernel/$module ]] || continue
 
             search=/$squash_prefix_in/$module
             # There is no crc32_generic module till 16.04.2, 16.10
-            [[ $(unsquashfs_l "$search" | tail -n1) == "$search" ]] || continue
+            if [[ $(unsquashfs_l "$search" | tail -n1) != "$search" ]]; then
+                mask=${mask%x}-
+                continue
+            fi
 
             if [[ $modules_added == n ]]; then
                 modules_added=y
@@ -403,7 +403,6 @@ PATCH
             fi
 
             log "${module##*/}"
-            (( mask|=1 ))
 
             unsquashfs -n -q -f -o "$squash_offset" -d "$initrd_workdir/$squash_prefix_out" \
                        "$iso" "$squash_prefix_in/$module"
@@ -411,7 +410,7 @@ PATCH
 
         [[ $modules_added == n ]] || log_unindent
 
-        (( mask&5 == 5 )) ||
+        [[ $mask == x?x ]] ||
             bye 'Failed to add the required kernel modules'
 
         depmod -b "$initrd_workdir" "$kernel"

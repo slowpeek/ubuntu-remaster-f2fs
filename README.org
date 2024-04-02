@@ -1,3 +1,7 @@
+* Deprecation notice
+
+This script has evolved into https://github.com/slowpeek/ubuntu-remaster-bbb
+
 * About
 
 This script makes it possible for ubuntu iso images (including flavours) to
